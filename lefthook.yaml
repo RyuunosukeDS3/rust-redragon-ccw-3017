@@ -3,7 +3,7 @@ prepare-commit-msg:
     commitzen:
       skip: merge
       only:
-        - run: test -r ~/.czrc
+        - run: test -r .czrc
       interactive: true
       run: git-cz --hook
       env:

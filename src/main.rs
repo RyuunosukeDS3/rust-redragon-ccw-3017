@@ -19,9 +19,7 @@ fn get_cpu_temp() -> Option<u8> {
                 .flatten()
                 .flatten()
                 .filter(|e| {
-                    e.file_name()
-                        .to_string_lossy()
-                        .starts_with("temp")
+                    e.file_name().to_string_lossy().starts_with("temp")
                         && e.file_name().to_string_lossy().ends_with("_input")
                 })
         })

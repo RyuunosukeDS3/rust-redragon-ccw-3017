@@ -1,0 +1,8 @@
+{
+  "path": "cz-conventional-commit-gitmoji",
+  "config": {
+    "cz-conventional-commit-gitmoji": {
+      "skipQuestions": ["issues"]
+    }
+  }
+}
