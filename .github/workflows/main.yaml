@@ -39,10 +39,10 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             artifact: redragon-lcd-linux-amd64
-            cross-image: "ghcr.io/cross-rs/x86_64-unknown-linux-gnu:0.2.5"
+            use-cross: false
           - target: x86_64-pc-windows-gnu
             artifact: redragon-lcd-windows-amd64.exe
-            cross-image: "ghcr.io/cross-rs/x86_64-pc-windows-gnu:0.2.5"
+            use-cross: true
 
     steps:
       - name: Checkout
@@ -51,45 +51,39 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.use-cross && matrix.target || '' }}
 
-      - name: Install dependencies
+      - name: Install Linux dependencies
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libudev-dev pkg-config
+
+      - name: Install Windows dependencies
+        if: matrix.target == 'x86_64-pc-windows-gnu'
         run: |
           sudo apt-get update
           sudo apt-get install -y mingw-w64 pkg-config
 
-      - name: Create Cross.toml for Linux build
-        if: matrix.target == 'x86_64-unknown-linux-gnu'
-        run: |
-          cat > Cross.toml << 'EOF'
-          [target.x86_64-unknown-linux-gnu]
-          image = "${{ matrix.cross-image }}"
-          
-          [target.x86_64-unknown-linux-gnu.dependencies]
-          packages = ["libudev-dev", "pkg-config"]
-          EOF
-
-      - name: Create Cross.toml for Windows build
-        if: matrix.target == 'x86_64-pc-windows-gnu'
-        run: |
-          cat > Cross.toml << 'EOF'
-          [target.x86_64-pc-windows-gnu]
-          image = "${{ matrix.cross-image }}"
-          EOF
-
-      - name: Install cross
+      - name: Install cross (Windows only)
+        if: matrix.use-cross
         uses: taiki-e/install-action@v2
         with:
           tool: cross
 
-      - name: Build
+      - name: Build Linux (native)
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: cargo build --release
+
+      - name: Build Windows (cross)
+        if: matrix.target == 'x86_64-pc-windows-gnu'
         run: cross build --release --target ${{ matrix.target }}
 
-      - name: Rename binary (Linux)
+      - name: Copy binary (Linux)
         if: matrix.target == 'x86_64-unknown-linux-gnu'
-        run: cp target/${{ matrix.target }}/release/redragon-lcd ${{ matrix.artifact }}
+        run: cp target/release/redragon-lcd ${{ matrix.artifact }}
 
-      - name: Rename binary (Windows)
+      - name: Copy binary (Windows)
         if: matrix.target == 'x86_64-pc-windows-gnu'
         run: cp target/${{ matrix.target }}/release/redragon-lcd.exe ${{ matrix.artifact }}
 
