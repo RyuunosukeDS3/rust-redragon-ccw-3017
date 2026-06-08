@@ -83,10 +83,8 @@ mod windows_temp {
         let com = COMLibrary::new().ok()?;
         let conn = WMIConnection::with_namespace_path("ROOT\\LibreHardwareMonitor", com.into())
             .or_else(|_| {
-                WMIConnection::with_namespace_path(
-                    "ROOT\\OpenHardwareMonitor",
-                    COMLibrary::new().ok()?.into(),
-                )
+                let com2 = COMLibrary::new().map_err(|e| e)?;
+                WMIConnection::with_namespace_path("ROOT\\OpenHardwareMonitor", com2.into())
             })
             .ok()?;
 
