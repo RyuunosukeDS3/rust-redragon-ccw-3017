@@ -8,6 +8,9 @@ const VENDOR_ID: u16 = 0x5131;
 const PRODUCT_ID: u16 = 0x2007;
 const UPDATE_INTERVAL: Duration = Duration::from_secs(2);
 
+// ─── Linux ───────────────────────────────────────────────────────────────────
+
+#[cfg(target_os = "linux")]
 fn get_cpu_temp() -> Option<u8> {
     let mut paths: Vec<_> = fs::read_dir("/sys/class/hwmon")
         .ok()?
@@ -28,12 +31,16 @@ fn get_cpu_temp() -> Option<u8> {
 
     paths.sort();
 
+    // Priority pass: known CPU thermal drivers
     for path in &paths {
         if let Some(parent) = path.parent() {
             let name_path = parent.join("name");
             if let Ok(name) = fs::read_to_string(&name_path) {
                 let name = name.trim();
-                if matches!(name, "k10temp" | "coretemp" | "zenpower") {
+                if matches!(
+                    name,
+                    "k10temp" | "coretemp" | "zenpower" | "nct6775" | "it87"
+                ) {
                     if let Some(temp) = read_temp(path) {
                         return Some(temp);
                     }
@@ -42,6 +49,7 @@ fn get_cpu_temp() -> Option<u8> {
         }
     }
 
+    // Fallback pass: first sensor reading a sane value
     for path in &paths {
         if let Some(temp) = read_temp(path) {
             if temp > 20 {
@@ -52,6 +60,91 @@ fn get_cpu_temp() -> Option<u8> {
 
     None
 }
+
+// ─── Windows ─────────────────────────────────────────────────────────────────
+
+#[cfg(target_os = "windows")]
+mod windows_temp {
+    use serde::Deserialize;
+    use wmi::{COMLibrary, WMIConnection};
+
+    // LibreHardwareMonitor / OpenHardwareMonitor WMI sensor schema
+    #[derive(Deserialize, Debug)]
+    #[allow(non_snake_case)]
+    pub struct OhmSensor {
+        pub Name: String,
+        pub Value: f32,
+        pub SensorType: String,
+        pub Parent: String,
+    }
+
+    // OHM/LHM sensor — requires the app to be running
+    pub fn via_ohm() -> Option<u8> {
+        let com = COMLibrary::new().ok()?;
+        let conn = WMIConnection::with_namespace_path("ROOT\\LibreHardwareMonitor", com.into())
+            .or_else(|_| {
+                WMIConnection::with_namespace_path(
+                    "ROOT\\OpenHardwareMonitor",
+                    COMLibrary::new().ok()?.into(),
+                )
+            })
+            .ok()?;
+
+        let sensors: Vec<OhmSensor> = conn.query().ok()?;
+
+        // Prefer "CPU Package" or "Core Average", fall back to any CPU temperature
+        let priority = ["CPU Package", "Core Average", "CPU"];
+        for needle in &priority {
+            for s in &sensors {
+                if s.SensorType == "Temperature"
+                    && s.Name.contains(needle)
+                    && s.Value > 0.0
+                    && s.Value < 120.0
+                {
+                    return Some(s.Value as u8);
+                }
+            }
+        }
+        None
+    }
+
+    // Last-resort: MSAcpi thermal zones (often unavailable, but costs nothing to try)
+    #[derive(Deserialize, Debug)]
+    #[allow(non_snake_case)]
+    pub struct ThermalZone {
+        pub CurrentTemperature: i32,
+    }
+
+    pub fn via_acpi() -> Option<u8> {
+        let com = COMLibrary::new().ok()?;
+        let conn = WMIConnection::with_namespace_path("ROOT\\WMI", com.into()).ok()?;
+        let zones: Vec<ThermalZone> = conn.query().ok()?;
+        zones.iter().find_map(|z| {
+            // Tenths of Kelvin → Celsius
+            let c = (z.CurrentTemperature - 2731) / 10;
+            if c > 20 && c < 120 {
+                Some(c as u8)
+            } else {
+                None
+            }
+        })
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn get_cpu_temp() -> Option<u8> {
+    // Try OHM/LHM first (accurate), fall back to ACPI (unreliable but no deps)
+    windows_temp::via_ohm().or_else(|| windows_temp::via_acpi())
+}
+
+// ─── Unsupported platforms ────────────────────────────────────────────────────
+
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+fn get_cpu_temp() -> Option<u8> {
+    None
+}
+
+// ─── Shared ───────────────────────────────────────────────────────────────────
 
 fn read_temp(path: &Path) -> Option<u8> {
     let raw: i64 = fs::read_to_string(path).ok()?.trim().parse().ok()?;
