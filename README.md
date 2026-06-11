@@ -17,12 +17,28 @@ A lightweight Rust binary that displays your CPU temperature on the Redragon CCW
 
 ### Linux
 ```bash
-curl -sSL https://raw.githubusercontent.com/RyuunosukeDS3/rust-redragon-ccw-3017/main/install.sh | sudo bash
+curl -fSL https://raw.githubusercontent.com/RyuunosukeDS3/rust-redragon-ccw-3017/main/install-service.sh -o /tmp/install-service.sh \
+&& sudo bash /tmp/install-service.sh
 ```
 
 ### Windows (Run PowerShell as Administrator)
 ```powershell
-iex (irm https://raw.githubusercontent.com/RyuunosukeDS3/rust-redragon-ccw-3017/main/install.ps1)
+$u="https://raw.githubusercontent.com/RyuunosukeDS3/rust-redragon-ccw-3017/main/install-service.ps1"
+$f="$env:TEMP\install-service.ps1"
+
+try {
+    Invoke-RestMethod $u -OutFile $f -ErrorAction Stop
+} catch {
+    Write-Host "Download failed: $($_.Exception.Message)" -ForegroundColor Red
+    exit 1
+}
+
+if (-not (Test-Path $f) -or (Get-Item $f).Length -lt 100) {
+    Write-Host "Invalid or empty script download" -ForegroundColor Red
+    exit 1
+}
+
+powershell -ExecutionPolicy Bypass -File $f
 ```
 
 ## Uninstall
